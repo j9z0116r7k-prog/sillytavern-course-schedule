@@ -17,11 +17,107 @@ const ROWS = [
   ['晚自习 4', '21:30–22:10', ['英语周测','晚自习','晚自习','晚自习'], 'evening'],
 ];
 
-function rows() { return ROWS.map((r, i) => { const [label, time, courses, type] = r; if (!courses) return `<tr class="stcs-break ${type}"><td colspan="6">${time}　${label}</td></tr>`; const cells = courses.map((course, col) => i === 11 && col === 4 ? '<td class="stcs-home" rowspan="4">放学回家</td>' : `<td class="stcs-class stcs-${type}">${course}</td>`).join(''); return `<tr><th class="stcs-time stcs-${type}"><b>${label}</b><small>${time}</small></th>${cells}</tr>`; }).join(''); }
+function rows() { 
+  return ROWS.map((r, i) => { 
+    const [label, time, courses, type] = r; 
+    if (!courses) return `<tr class="stcs-break ${type}"><td colspan="6">${time}　${label}</td></tr>`; 
+    const cells = courses.map((course, col) => i === 11 && col === 4 ? '<td class="stcs-home" rowspan="4">放学回家</td>' : `<td class="stcs-class stcs-${type}">${course}</td>`).join(''); 
+    return `<tr><th class="stcs-time stcs-${type}"><b>${label}</b><small>${time}</small></th>${cells}</tr>`; 
+  }).join(''); 
+}
+
+// 拖拽辅助函数：绑定长按拖拽事件
+function bindLongPressDrag(targetEl, moveEl = targetEl, longPressMs = 400) {
+  let timer = null;
+  let isDragging = false;
+  let startX = 0, startY = 0;
+  let offsetX = 0, offsetY = 0;
+  let hasMoved = false;
+
+  const onPointerDown = (e) => {
+    // 忽略点击关闭/交互按钮
+    if (e.target.closest('button') && e.target !== targetEl) return;
+    
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = moveEl.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    hasMoved = false;
+
+    timer = setTimeout(() => {
+      isDragging = true;
+      moveEl.classList.add('stcs-dragging');
+      if (navigator.vibrate) navigator.vibrate(40); // 触发长按震动反馈
+    }, longPressMs);
+
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('pointercancel', onPointerUp);
+  };
+
+  const onPointerMove = (e) => {
+    const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+    // 如果未达到长按时间就移动了超过 8px，取消长按判定
+    if (!isDragging && dist > 8) {
+      clearTimeout(timer);
+      return;
+    }
+
+    if (isDragging) {
+      hasMoved = true;
+      if (e.cancelable) e.preventDefault();
+      
+      // 边界限制，防止脱出可视区域
+      const left = Math.max(0, Math.min(window.innerWidth - moveEl.offsetWidth, e.clientX - offsetX));
+      const top = Math.max(0, Math.min(window.innerHeight - moveEl.offsetHeight, e.clientY - offsetY));
+      
+      moveEl.style.left = `${left}px`;
+      moveEl.style.top = `${top}px`;
+      moveEl.style.right = 'auto';
+      moveEl.style.bottom = 'auto';
+    }
+  };
+
+  const onPointerUp = () => {
+    clearTimeout(timer);
+    if (isDragging) {
+      isDragging = false;
+      moveEl.classList.remove('stcs-dragging');
+    }
+    document.removeEventListener('pointermove', onPointerMove);
+    document.removeEventListener('pointerup', onPointerUp);
+    document.removeEventListener('pointercancel', onPointerUp);
+  };
+
+  targetEl.addEventListener('pointerdown', onPointerDown);
+
+  // 返回判断函数，防止拖拽松开时触发点击事件
+  return () => hasMoved;
+}
+
 function init() {
   if (document.getElementById('stcs-panel')) return;
+  
   document.body.insertAdjacentHTML('beforeend', `<button id="stcs-toggle" type="button" aria-label="打开课程表">课</button><section id="stcs-panel" hidden><header id="stcs-head"><div><span>WEEKLY TIMETABLE · GRADE 12</span><strong>高三领航一班 · 理科班课程表</strong></div><button id="stcs-close" type="button" aria-label="关闭课程表">×</button></header><p id="stcs-note">早读已预留 · 上午第二节后大课间 25 分钟 · 下午第一节前眼保健操 15 分钟</p><div id="stcs-scroll"><table><thead><tr><th>时间</th>${DAYS.map(d => `<th>${d}</th>`).join('')}</tr></thead><tbody>${rows()}</tbody></table></div></section>`);
-  const panel = document.getElementById('stcs-panel'); document.getElementById('stcs-toggle').onclick = () => panel.hidden = !panel.hidden; document.getElementById('stcs-close').onclick = () => panel.hidden = true;
-  const head = document.getElementById('stcs-head'); let drag; head.onpointerdown = e => { if (e.target.closest('button')) return; const r = panel.getBoundingClientRect(); drag = [e.clientX-r.left, e.clientY-r.top]; }; document.addEventListener('pointermove', e => { if (!drag) return; panel.style.left = `${Math.max(0,e.clientX-drag[0])}px`; panel.style.top = `${Math.max(0,e.clientY-drag[1])}px`; panel.style.right='auto'; panel.style.bottom='auto'; }); document.addEventListener('pointerup', () => drag = null);
+  
+  const panel = document.getElementById('stcs-panel');
+  const toggleBtn = document.getElementById('stcs-toggle');
+  const closeBtn = document.getElementById('stcs-close');
+  const head = document.getElementById('stcs-head');
+
+  // 1. 悬浮图标长按拖动 (长按 350ms 后可拖拽)
+  const wasToggleDragged = bindLongPressDrag(toggleBtn, toggleBtn, 350);
+  toggleBtn.onclick = () => {
+    if (!wasToggleDragged()) {
+      panel.hidden = !panel.hidden;
+    }
+  };
+
+  // 2. 面板 Header 抓取拖动 (保留头部按住拖动)
+  bindLongPressDrag(head, panel, 0);
+
+  closeBtn.onclick = () => panel.hidden = true;
 }
+
 document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', init) : init();
